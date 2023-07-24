@@ -1,12 +1,110 @@
 import * as BABYLON from "@babylonjs/core";
 
 var canvas = document.getElementById("renderCanvas");
+
 var engine = new BABYLON.Engine(canvas);
 
 const createScene = () => {
+  function selectFace(event) {
+    // Get the coordinates of the click
+    var pickResult = scene.pick(scene.pointerX, scene.pointerY);
+
+    // Check if the ray intersects with the cube
+    if (pickResult.hit && pickResult.pickedMesh === cube) {
+      // Store the selected mesh and the pointer down position
+      var selectedMesh = pickResult.faceId;
+      // Change the material of the selected face to a wireframe material
+      var faceMaterial = new BABYLON.StandardMaterial(
+        "wireframeMaterial",
+        scene
+      );
+      faceMaterial.wireframe = true;
+      faceMaterial.emissiveColor = highlightColor;
+      cube.material = faceMaterial;
+
+      // Calculate the normal vector of the selected face
+      selectedFaceNormal = pickResult.getNormal();
+
+      // Store the original vertex positions to calculate the resizing
+      originalVertexPositions = cube
+        .getVerticesData(BABYLON.VertexBuffer.PositionKind)
+        .slice();
+      resizing = true;
+      // Detaching the camera control while resizing
+      camera.detachControl(canvas);
+    }
+  }
+
+  function changeDimensions(event) {
+    if (resizing && selectedFaceNormal) {
+      // Calculate the distance of mouse movement (change this value to control resizing speed)
+      var resizeFactor = 0.02;
+
+      // Get the direction of extrusion
+      var direction = selectedFaceNormal;
+
+      // Calculate the new vertex positions based on the direction
+      var newVertexPositions = [];
+      for (var i = 0; i < originalVertexPositions.length; i += 3) {
+        var vertexPosition = new BABYLON.Vector3(
+          originalVertexPositions[i],
+          originalVertexPositions[i + 1],
+          originalVertexPositions[i + 2]
+        );
+        // check if the current coordinates lies on selected face or not
+        if (
+          selectedFaceNormal.equalsWithEpsilon(
+            vertexPosition.subtract(cube.position).normalize(),
+            0.9
+          )
+        ) {
+          //vector addition in the coordinates
+          var newPosition = vertexPosition.add(
+            direction.scale(resizeFactor * vertexPosition.length())
+          );
+          newVertexPositions.push(newPosition.x, newPosition.y, newPosition.z);
+        } else {
+          newVertexPositions.push(
+            originalVertexPositions[i],
+            originalVertexPositions[i + 1],
+            originalVertexPositions[i + 2]
+          );
+        }
+      }
+
+      // Update the mesh to reflect the resizing
+      cube.updateVerticesData(
+        BABYLON.VertexBuffer.PositionKind,
+        newVertexPositions,
+        true
+      );
+      // // Enable vertex data for the cube to manipulate its vertices
+      // cube.enableEdgesRendering();
+      // cube.edgesWidth = 1;
+      // cube.edgesColor = new BABYLON.Color4(0, 0, 0, 1); // Black color
+      cube.createNormals(true); // Recalculate normals to fix shading after vertex position changes
+    }
+  }
+
+  function stopResizing(event) {
+    // Reset the material of the cube to its default material
+    cube.material = new BABYLON.StandardMaterial("defaultMaterial", scene);
+
+    // Reattach the control of the camera
+    camera.attachControl(canvas, true);
+
+    // Reinitialise all the values
+    resizing = false;
+    selectedFaceNormal = null;
+    originalVertexPositions = [];
+  }
+  // scene
   var scene = new BABYLON.Scene(engine);
+
+  // Adding light to the scene
   scene.createDefaultLight();
 
+  // Setting a camera
   var camera = new BABYLON.ArcRotateCamera(
     "camera",
     0,
@@ -35,6 +133,7 @@ const createScene = () => {
     scene
   );
 
+  // Setting up a ground
   var ground = new BABYLON.MeshBuilder.CreateGround(
     "",
     {
@@ -46,106 +145,31 @@ const createScene = () => {
   );
   ground.position = new BABYLON.Vector3(0, -1, 0);
 
-  // variables
-  var resizeFactor = 1.5;
-  var selectedFace;
-  var selectedFaceNormal;
-  var originalVertexPositions;
-  var direction;
+  // // Variables to face selection
+  var highlightColor = new BABYLON.Color3(1, 1, 0); // Yellow
+
+  // Variables to track selected cube faces and resizing
   var resizing = false;
-  var pickedX, pickedY, x, y, finalX, finalY;
+  var selectedFaceNormal = null;
+  var originalVertexPositions = [];
 
   // Add a pointerdown event listener to the canvas to handle clicks
-  canvas.addEventListener("pointerdown", (event) => {
-    var pickResult = scene.pick((x = scene.pointerX), (y = scene.pointerY));
-    console.log(x, y);
-    if (!resizing) {
-      pickedX = x;
-      pickedY = y;
-    } else {
-      finalX = x;
-      finalY = y;
-    }
+  canvas.addEventListener("pointerdown", selectFace);
 
-    // Check if the ray intersects with the cube
-    if (!resizing && pickResult.hit && pickResult.pickedMesh === cube) {
-      resizing = true;
-      // Check which face was clicked
-      var faceIndex = pickResult.faceId;
-      console.log("Selected face index:", faceIndex);
+  // Add a pointermove event listener to handle user input during resizing
+  canvas.addEventListener("pointermove", changeDimensions);
 
-      // Set the selected face
-      selectedFace = faceIndex;
-      // Calculate the normal vector of the selected face
-      selectedFaceNormal = pickResult.getNormal();
-      direction = selectedFaceNormal;
+  // Add a pointerup event listener to stop resizing
+  canvas.addEventListener("pointerup", stopResizing);
 
-      // Store the original vertex positions to calculate the resizing
-      originalVertexPositions = cube
-        .getVerticesData(BABYLON.VertexBuffer.PositionKind)
-        .slice();
-      console.log(originalVertexPositions);
-    } else if (resizing && pickResult.hit) {
-      resizing = false;
-      // case of top face
-      if (selectedFace > 7) {
-        console.log("top face");
-        var disY = finalY - pickedY;
-        console.log(disY);
-      }
-      // case of lower face
-      else {
-        console.log("mid face");
-        var disX = finalX - pickedX;
-        console.log(disX);
-
-        var newVertexPositions = [];
-        for (var i = 0; i < originalVertexPositions.length; i += 3) {
-          // console.log(i);
-          var newPosition = new BABYLON.Vector3(
-            originalVertexPositions[i] + disX / 100,
-            originalVertexPositions[i + 1],
-            originalVertexPositions[i + 2]
-          );
-          // if (
-          //   selectedFaceNormal.equalsWithEpsilon(
-          //     vertexPosition.subtract(cube.position).normalize(),
-          //     0.9
-          //   )
-          // ) {
-          console.log("new");
-          // var newPosition = vertexPosition.add(
-          //   direction.scale(resizeFactor * vertexPosition.length())
-          // );
-          newVertexPositions.push(newPosition.x, newPosition.y, newPosition.z);
-          // } else {
-          //   console.log("original");
-          //   newVertexPositions.push(
-          //     originalVertexPositions[i],
-          //     originalVertexPositions[i + 1],
-          //     originalVertexPositions[i + 2]
-          //   );
-          // }
-        }
-        cube.updateVerticesData(
-          BABYLON.VertexBuffer.PositionKind,
-          newVertexPositions
-          // true
-        );
-        cube.createNormals(true); // Recalculate normals to fix shading after vertex position changes
-      }
-    }
-  });
   return scene;
 };
 
+// creating the scene
 const scene = createScene();
 
-var renderLoop = function () {
-  scene.render();
-  requestAnimationFrame(renderLoop);
-};
-renderLoop();
+// rendering of the canvas
+engine.runRenderLoop(() => scene.render());
 
 // This will help to keep the dimensions of the canvas will be independent of the dimensions of the window
 window.addEventListener("resize", () => {
